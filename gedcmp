@@ -52,19 +52,26 @@ sub compare
 {
 	my ($person1, $person2) = @_;
 
-	return unless($person1->as_string() eq $person2->as_string());
+	my $string1 = $person1->as_string();
+
+	return unless($string1 eq $person2->as_string());
 
 	if((my $dob1 = get_value({ person => $person1, value => 'birth date' })) &&
 	   (my $dob2 = get_value({ person => $person2, value => 'birth date' }))) {
 	   	if(lc($dob1) ne lc($dob2)) {
-			return $person1->as_string() . " date of birth '$dob1' differs from '$dob2'";
+			return "$string1: date of birth '$dob1' differs from '$dob2'";
 		}
 	}
 	if((my $dod1 = get_value({ person => $person1, value => 'death date' })) &&
 	   (my $dod2 = get_value({ person => $person2, value => 'death date' }))) {
 	   	if(lc($dod1) ne lc($dod2)) {
-			return $person1->as_string() . " date of death '$dod1' differs from '$dod2'";
+			return "$string1: date of death '$dod1' differs from '$dod2'";
 		}
+	}
+	my @spouses1 = $person1->spouse();
+	my @spouses2 = $person2->spouse();
+	if(scalar(@spouses1) != scalar(@spouses2)) {
+		return "$string1: differing number of spouses " . scalar(@spouses1) . '/' . scalar(@spouses2);
 	}
 }
 
