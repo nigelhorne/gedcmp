@@ -1,0 +1,267 @@
+#!/usr/bin/env perl
+
+# Author Nigel Horne: njh@bandsman.co.uk
+# Copyright (C) 2016, Nigel Horne
+
+# Usage is subject to licence terms.
+# The licence terms of this software are as follows:
+# Personal single user, single computer use: GPL2
+# All other users (including Commercial, Charity, Educational, Government)
+#	must apply in writing for a licence for use from Nigel Horne at the
+#	above e-mail.
+
+# Compare two gedcoms
+
+use strict;
+use warnings;
+use autodie qw(:all);
+
+use Gedcom;
+use Lingua::EN::NameParse;
+use Lingua::EN::NameCase;
+use Tie::Static;
+
+no lib '.';
+
+die "Usage: $0 filename filename2 \n" unless($ARGV[0] && $ARGV[1]);
+
+my $ged1 = Gedcom->new(gedcom_file => $ARGV[0], read_only => 1);
+my $ged2 = Gedcom->new(gedcom_file => $ARGV[1], read_only => 1);
+my $nameparser = Lingua::EN::NameParse->new(extended_titles => 1, initials => 1);
+
+my @everyone1 = $ged1->individuals();
+
+foreach my $person1(@everyone1) {
+	my $diffs;
+	my @people2 = $ged2->get_individual($person1->as_string({middle_names => 1}));
+	foreach my $person2(@people2) {
+		if(my $rc = compare($person1, $person2)) {
+			$diffs = $rc;	# This one doesn't match
+		} else {
+			$diffs = undef;	# Found match
+			last;
+		}
+	}
+	if($diffs) {
+		print "$diffs\n";
+	}
+}
+
+sub compare
+{
+	my ($person1, $person2) = @_;
+
+	if((my $dob1 = get_value({ person => $person1, value => 'birth date' })) &&
+	   (my $dob2 = get_value({ person => $person2, value => 'birth date' }))) {
+	   	if(lc($dob1) ne lc($dob2)) {
+			return $person1->as_string() . '/' . $person2->as_string() . " '$dob1' differs from '$dob2'";
+		}
+	}
+}
+
+sub Gedcom::Individual::as_string
+{
+	my $self = shift;
+	my %args = (ref($_[0]) eq 'HASH') ? %{$_[0]} : @_;
+
+	my $name;
+
+	if($args{'use_aka'}) {
+		my $n2 = $self->tag_record('NAME', 2);
+		if(defined($n2) && (ref($n2) eq 'Gedcom::Record') && defined($n2->type()) && ($n2->type() eq 'AlsoKnownAs')) {
+			$name = $n2->value();
+		} else {
+			return;
+		}
+	} else {
+		$name = $self->name();
+	}
+
+	$name =~ s/\///g;
+	$nameparser->parse($name);
+
+	my %name_components = $nameparser->components();
+	my $first_name = $name_components{'given_name_1'};
+	my $middle_name = $name_components{'middle_name'};
+	my $surname = $name_components{'surname_1'};
+	if($name_components{'surname_2'}) {
+		$surname .= ' ' . $name_components{'surname_2'};
+	}
+	if($name_components{'non_matching'}) {
+		if($name =~ /(\w{2,})\s(\w{2,})\s(\w+)\s(\w{2,})/) {
+			# Name parser doesn't parse names like this very well
+			$first_name = $1;
+			$middle_name = "$2 $3";
+			$surname = $4;
+		} else {
+			if($surname) {
+				$surname .= ' ';
+			}
+			my $rest = $name_components{'non_matching'};
+			if($rest =~ /(.+) $/) {
+				$rest = $1;
+			}
+			$surname .= $rest;
+		}
+	} elsif(!defined($surname)) {
+		$surname = $self->surname();
+	}
+
+	my $has_maiden_name;
+	if($args{'nee'}) {
+		my $sex = get_value({ person => $self, value => 'sex' });
+		if(defined($sex) && ($sex eq 'F')) {
+			if(my $husband = $self->husband()) {
+				$surname = $husband->surname();
+				$has_maiden_name = 1;
+			} elsif(my $spouse = $self->spouse()) {
+				red_warning({ person => $self, warning => 'married, but no husband relationship' });
+				$surname = $spouse->surname();
+				$has_maiden_name = 1;
+			}
+		}
+	}
+
+	my $rc;
+
+	if($args{'title'}) {
+		$rc .= $name_components{'title_1'};
+		if($rc) {
+			$rc .= ' ';
+		}
+	}
+
+	if($first_name) {
+		$rc .= $first_name;
+	} else {
+		$rc .= $self->given_names();
+	}
+
+	if($args{'middle_names'}) {
+		if($middle_name) {
+			$rc .= " $middle_name";
+		} elsif($name =~ /\s([A-Z])\s.+/) {
+			# Just an initial has been given
+			$rc .= " $1";
+		}
+	}
+
+	if($surname) {
+		if($rc) {
+			$rc .= ' ';
+		}
+		$rc .= normalize_name($surname);
+		if(my $suffix = $name_components{'suffix'}) {
+			$rc .= " $suffix";
+		}
+	}
+
+	if($has_maiden_name && $self->surname()) {
+		$rc .= ' (nee ' . normalize_name($self->surname()) . ')';
+	}
+
+	if(!defined($rc)) {
+		red_warning({ warning => "Can't determine name of this person" });
+		$args{'include_years'} = 1;
+		$rc = 'Unknown person ';
+	}
+
+	if($args{'include_years'}) {
+		my $dob = get_value({ person => $self, value => 'birth date' });
+
+		my $yob;	# Year of birth
+		if($dob && ($dob =~ /.*?(\d{3,4})/)) {
+			if($dob =~ /^(Abt|ca?)\.?\s*(.+)/i) {
+				$yob = "c$2";
+			} else {
+				$yob = $1;
+			}
+		} else {
+			$dob = get_value({ person => $self, value => 'baptism date' });
+			if($dob && ($dob =~ /.*?(\d{3,4})/)) {
+				$yob = "c$1";
+			}
+		}
+
+		my $dod = get_value({ person => $self, value => 'death date' });
+
+		my $yod;	# Year of death
+		if($dod && ($dod =~ /.*?(\d{3,4})/)) {
+			$yod = $1;
+		} else {
+			$dod = get_value({ person => $self, value => 'burial date' });
+			if($dod && ($dod =~ /.*?(\d{3,4})/)) {
+				$yod = "c$1";
+			}
+		}
+
+		$rc .= ' ' if($yob || $yod);
+
+		if($yob) {
+			$rc .= "$yob ";
+		}
+
+		$rc .= '-' if($yob || $yod);
+
+		if($yod) {
+			return "$rc $yod";
+		}
+	}
+
+	return $rc;
+}
+
+sub red_warning
+{
+	my %params = (ref($_[0]) eq 'HASH') ? %{$_[0]} : @_;
+
+	die "What do you want to say?" unless($params{'warning'});
+
+	if($params{'person'}) {
+		my @call_details = caller(0);
+		warn colored(['red'], $params{'person'}->as_string(), ': ', $params{'warning'}, ' at line ', $call_details[2]);
+	} else {
+		warn colored(lcfirst($params{'warning'}), 'red');
+	}
+	# my $i = 0;
+	# while((my @call_details = (caller($i++)))) {
+		# print STDERR "\t", colored($call_details[1] . ':' . $call_details[2] . ' calling function ' . $call_details[3], 'red'), "\n";
+	# }
+}
+
+# Cache gedcom values
+sub get_value
+{
+	my %params = (ref($_[0]) eq 'HASH') ? %{$_[0]} : @_;
+
+	my $person = $params{'person'};
+	my $value = $params{'value'};
+
+	my $xref = $person->{'xref'};
+	tie (my %values, 'Tie::Static');
+
+	if(defined($values{$xref}{$value})) {
+		return $values{$xref}{$value};
+	}
+
+	my $rc = $person->get_value($value);
+	$values{$xref}{$value} = $rc;
+	return $rc;
+}
+
+sub normalize_name
+{
+	# my $name = shift;
+
+	# my $rc;
+	# foreach my $word(split(/-| |'/, lc($name))) {
+		# $rc .= '-' if($rc && ($name =~ /-/));
+		# $rc .= "'" if($rc && ($name =~ /'/));
+		# $rc .= ' ' if($rc && ($name =~ / /));
+		# $rc .= ucfirst($word);
+	# }
+
+	# return $rc;
+
+	return Lingua::EN::NameCase::nc(shift);
+}
