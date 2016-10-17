@@ -16,7 +16,7 @@ perl:
   - "5.12"
 
 install:
-  - cpanm --skip-satisfied -q -n Moo~2.002004 Gedcom Genealogy::Gedcom::Date Term::ANSIColor Lingua::EN::NameParse Lingua::EN::NameCase Tie::Static B::Lint warnings::unused
+  - cpanm --skip-satisfied -q -n Moo~2.002004 Gedcom Genealogy::Gedcom::Date Term::ANSIColor Lingua::EN::NameParse Lingua::EN::NameCase Tie::Static B::Lint warnings::unused IPC::System::Simple
 
 script:
   - perl -c -MO=Lint ./gedcmp
