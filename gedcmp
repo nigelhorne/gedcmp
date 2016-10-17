@@ -17,6 +17,7 @@ use warnings;
 use autodie qw(:all);
 
 use Gedcom;
+use Term::ANSIColor;
 use Lingua::EN::NameParse;
 use Lingua::EN::NameCase;
 use Tie::Static;
@@ -51,10 +52,18 @@ sub compare
 {
 	my ($person1, $person2) = @_;
 
+	return unless($person1->as_string() eq $person2->as_string());
+
 	if((my $dob1 = get_value({ person => $person1, value => 'birth date' })) &&
 	   (my $dob2 = get_value({ person => $person2, value => 'birth date' }))) {
 	   	if(lc($dob1) ne lc($dob2)) {
-			return $person1->as_string() . '/' . $person2->as_string() . " '$dob1' differs from '$dob2'";
+			return $person1->as_string() . " date of birth '$dob1' differs from '$dob2'";
+		}
+	}
+	if((my $dod1 = get_value({ person => $person1, value => 'death date' })) &&
+	   (my $dod2 = get_value({ person => $person2, value => 'death date' }))) {
+	   	if(lc($dod1) ne lc($dod2)) {
+			return $person1->as_string() . " date of death '$dod1' differs from '$dod2'";
 		}
 	}
 }
