@@ -56,12 +56,17 @@ sub compare
 
 	return unless($string1 eq $person2->as_string());
 
-	if((my $dob1 = get_value({ person => $person1, value => 'birth date' })) &&
-	   (my $dob2 = get_value({ person => $person2, value => 'birth date' }))) {
-	   	if(lc($dob1) ne lc($dob2)) {
-			return "$string1: date of birth '$dob1' differs from '$dob2'";
-		}
+	my $dob1 = get_value({ person => $person1, value => 'birth date' });
+	my $dob2 = get_value({ person => $person2, value => 'birth date' });
+
+	if($dob1 && !$dob2) {
+		return "$string1: date of birth '$dob1' is missing";
+	} elsif($dob2 && !$dob1) {
+		return "$string1: date of birth '$dob2' is missing";
+	} elsif($dob1 && $dob2 && (lc($dob1) ne lc($dob2))) {
+		return "$string1: date of birth '$dob1' differs from '$dob2'";
 	}
+
 	if((my $dod1 = get_value({ person => $person1, value => 'death date' })) &&
 	   (my $dod2 = get_value({ person => $person2, value => 'death date' }))) {
 	   	if(lc($dod1) ne lc($dod2)) {
