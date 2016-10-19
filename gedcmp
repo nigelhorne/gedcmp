@@ -67,12 +67,17 @@ sub compare
 		return "$string1: date of birth '$dob1' differs from '$dob2'";
 	}
 
-	if((my $dod1 = get_value({ person => $person1, value => 'death date' })) &&
-	   (my $dod2 = get_value({ person => $person2, value => 'death date' }))) {
-	   	if(lc($dod1) ne lc($dod2)) {
-			return "$string1: date of death '$dod1' differs from '$dod2'";
-		}
+	my $dod1 = get_value({ person => $person1, value => 'death date' });
+	my $dod2 = get_value({ person => $person2, value => 'death date' });
+
+	if($dod1 && !$dod2) {
+		return "$string1: date of death '$dod1' is missing";
+	} elsif($dod2 && !$dod1) {
+		return "$string1: date of death '$dod2' is missing";
+	} elsif($dod1 && $dod2 && (lc($dod1) ne lc($dod2))) {
+		return "$string1: date of death '$dod1' differs from '$dod2'";
 	}
+
 	my @spouses1 = $person1->spouse();
 	my @spouses2 = $person2->spouse();
 	if(scalar(@spouses1) != scalar(@spouses2)) {
