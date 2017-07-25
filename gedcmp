@@ -1,7 +1,7 @@
 #!/usr/bin/env perl
 
 # Author Nigel Horne: njh@bandsman.co.uk
-# Copyright (C) 2016, Nigel Horne
+# Copyright (C) 2016-2017, Nigel Horne
 
 # Usage is subject to licence terms.
 # The licence terms of this software are as follows:
@@ -24,7 +24,7 @@ use Tie::Static;
 
 no lib '.';
 
-die "Usage: $0 filename filename2 \n" unless($ARGV[0] && $ARGV[1]);
+die "Usage: $0 filename1 filename2 \n" unless($ARGV[0] && $ARGV[1]);
 
 my $ged1 = Gedcom->new(gedcom_file => $ARGV[0], read_only => 1);
 my $ged2 = Gedcom->new(gedcom_file => $ARGV[1], read_only => 1);
@@ -32,19 +32,22 @@ my $nameparser = Lingua::EN::NameParse->new(extended_titles => 1, initials => 1)
 
 my @everyone1 = $ged1->individuals();
 
+print "\"person\",\"$ARGV[0]\",\"$ARGV[1]\",\"note\"\n";
+
 foreach my $person1(@everyone1) {
-	my $diffs;
+	my @diffs = ();
 	my @people2 = $ged2->get_individual($person1->as_string({middle_names => 1}));
 	foreach my $person2(@people2) {
-		if(my $rc = compare($person1, $person2)) {
-			$diffs = $rc;	# This one doesn't match
+		my @rc = compare($person1, $person2);
+		if(scalar(@rc)) {
+			@diffs = @rc;	# This one doesn't match
 		} else {
-			$diffs = undef;	# Found match
+			@diffs = ();	# Found match
 			last;
 		}
 	}
-	if($diffs) {
-		print "$diffs\n";
+	if(scalar(@diffs)) {
+		print '"', $person1->as_string(include_years => 1), '","', join('","', map { defined($_) ? $_ : '' } @diffs), "\"\n";
 	}
 }
 
@@ -60,32 +63,199 @@ sub compare
 	my $dob2 = get_value({ person => $person2, value => 'birth date' });
 
 	if($dob1 && !$dob2) {
-		return "$string1: date of birth '$dob1' is missing";
+		return ($dob1, undef, "date of birth is missing from $ARGV[1]");
 	} elsif($dob2 && !$dob1) {
-		return "$string1: date of birth '$dob2' is missing";
+		return (undef, $dob2, "date of birth is missing from $ARGV[1]");
 	} elsif($dob1 && $dob2 && (lc($dob1) ne lc($dob2))) {
-		return "$string1: date of birth '$dob1' differs from '$dob2'";
+		return ($dob1, $dob2, 'date of birth differs');
 	}
 
 	my $dod1 = get_value({ person => $person1, value => 'death date' });
 	my $dod2 = get_value({ person => $person2, value => 'death date' });
 
 	if($dod1 && !$dod2) {
-		return "$string1: date of death '$dod1' is missing";
+		return ($dob1, undef, "date of death is missing from $ARGV[1]");
 	} elsif($dod2 && !$dod1) {
-		return "$string1: date of death '$dod2' is missing";
+		return (undef, $dob2, "date of death is missing from $ARGV[1]");
 	} elsif($dod1 && $dod2 && (lc($dod1) ne lc($dod2))) {
-		return "$string1: date of death '$dod1' differs from '$dod2'";
+		return ($dod1, $dod2, 'date of death differs');
 	}
 
 	my @spouses1 = $person1->spouse();
 	my @spouses2 = $person2->spouse();
 	if(scalar(@spouses1) != scalar(@spouses2)) {
-		return "$string1: differing number of spouses " . scalar(@spouses1) . '/' . scalar(@spouses2);
+		return (scalar(@spouses1), scalar(@spouses2), 'number of spouses differs');
 	}
+
+	return;
 }
 
 sub Gedcom::Individual::as_string
+{
+	my $self = shift;
+	my %args = (ref($_[0]) eq 'HASH') ? %{$_[0]} : @_;
+
+	my $name;
+
+	if($args{'use_aka'}) {
+		my $n2 = $self->tag_record('NAME', 2);
+		if(defined($n2) && (ref($n2) eq 'Gedcom::Record') && defined($n2->type()) && ($n2->type() eq 'AlsoKnownAs') && ($n2->value() ne $self->name())) {
+			$name = $n2->value();
+		} else {
+			return;
+		}
+	} else {
+		$name = $self->name();
+	}
+
+	$name =~ s/\///g;
+	$nameparser->parse($name);
+
+	my %name_components = $nameparser->components();
+	my $first_name = $name_components{'given_name_1'};
+	my $middle_name = $name_components{'middle_name'};
+	my $surname = $name_components{'surname_1'};
+	if($name_components{'surname_2'}) {
+		$surname .= ' ' . $name_components{'surname_2'};
+	}
+	if($name_components{'non_matching'}) {
+		if($name =~ /(\w{2,})\s(\w{2,})\s(\w+)\s(\w{2,})/) {
+			# Name parser doesn't parse names like this very well
+			$first_name = $1;
+			$middle_name = "$2 $3";
+			$surname = $4;
+		} else {
+			if($surname) {
+				$surname .= ' ';
+			}
+			my $rest = $name_components{'non_matching'};
+			if($rest =~ /(.+) $/) {
+				$rest = $1;
+			}
+			$surname .= $rest;
+		}
+	} elsif(!defined($surname)) {
+		$surname = $self->surname();
+	}
+
+	my $has_maiden_name;
+	if($args{'nee'}) {
+		my $sex = get_value({ person => $self, value => 'sex' });
+		if(defined($sex) && ($sex eq 'F')) {
+			if(my $husband = $self->husband()) {
+				$surname = $husband->surname();
+				$has_maiden_name = 1;
+			} elsif(my $spouse = $self->spouse()) {
+				$surname = $spouse->surname();
+				$has_maiden_name = 1;
+			}
+		}
+	}
+
+	my $rc;
+
+	if($args{'title'} && $name_components{'title_1'}) {
+		$rc .= $name_components{'title_1'};
+		if($rc) {
+			$rc .= ' ';
+		}
+	}
+
+	if($first_name) {
+		$rc .= $first_name;
+	} elsif($self->given_names()) {
+		$rc .= $self->given_names();
+	} elsif($args{'print_unknown'}) {
+		$rc .= ' ?';
+	}
+
+	if($args{'middle_names'}) {
+		if($middle_name) {
+			$rc .= " $middle_name";
+		} elsif($name =~ /\s([A-Z])\s.+/) {
+			# Just an initial has been given
+			$rc .= " $1";
+		}
+	}
+
+	if($surname) {
+		if($rc) {
+			$rc .= ' ';
+		}
+		$rc .= normalize_name($surname);
+		if(my $suffix = $name_components{'suffix'}) {
+			$rc .= " $suffix";
+		}
+	} elsif($args{'print_unknown'}) {
+		$rc .= ' ?';
+	}
+
+	if($has_maiden_name && $self->surname()) {
+		$rc .= ' (nee ' . normalize_name($self->surname()) . ')';
+	}
+
+	if(!defined($rc)) {
+		$args{'include_years'} = 1;
+		$rc = 'Unknown person ';
+	}
+
+	if($args{'include_years'}) {
+		my $dob = get_value({ person => $self, value => 'birth date' });
+
+		my $yob;	# Year of birth
+		if($dob && ($dob =~ /.*?(\d{3,4})/)) {
+			if($dob =~ /^(Abt|ca?)\.?\s*(.+)/i) {
+				my $year = $2;
+				if($year =~ /^[A-Z]{3}\s(.+)/i) {
+					$yob = "c$1";	# Get the "1951" from "Feb 1951"
+				}
+				$yob = "c$year";
+			} else {
+				$yob = $1;
+			}
+		} else {
+			$dob = get_value({ person => $self, value => 'baptism date' });
+			if($dob && ($dob =~ /.*?(\d{3,4})/)) {
+				$yob = "c$1";
+			}
+		}
+
+		my $dod = get_value({ person => $self, value => 'death date' });
+
+		my $yod;	# Year of death
+		if($dod && ($dod =~ /.*?(\d{3,4})/)) {
+			$yod = $1;
+		} else {
+			$dod = get_value({ person => $self, value => 'burial date' });
+			if($dod && ($dod =~ /.*?(\d{3,4})/)) {
+				$yod = "c$1";
+			}
+		}
+
+		$rc .= ' ' if($yob || $yod);
+
+		if($yob) {
+			$rc .= "$yob ";
+		}
+
+		$rc .= '-' if($yob || $yod);
+
+		if($yod) {
+			return "$rc $yod";
+		}
+	}
+
+	if(!defined($rc)) {
+		red_warning({ "Can't determine the name for record " . $self->{'xref'} });
+		return '';
+	}
+
+	$rc =~ tr/"/'/;	# fix issues with Graphviz and others - compatibility with ged2site
+
+	return $rc;
+}
+
+sub Gedcom::Individual::as_stringO
 {
 	my $self = shift;
 	my %args = (ref($_[0]) eq 'HASH') ? %{$_[0]} : @_;
