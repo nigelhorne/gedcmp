@@ -16,6 +16,7 @@ use strict;
 use warnings;
 use autodie qw(:all);
 
+use DateTime::Format::Genealogy;
 use Gedcom;
 use Term::ANSIColor;
 use Lingua::EN::NameParse;
@@ -24,11 +25,12 @@ use Tie::Static;
 
 no lib '.';
 
-die "Usage: $0 filename1 filename2 \n" unless($ARGV[0] && $ARGV[1]);
+die "Usage: $0 filename1 filename2\n" unless($ARGV[0] && $ARGV[1]);
 
 my $ged1 = Gedcom->new(gedcom_file => $ARGV[0], read_only => 1);
 my $ged2 = Gedcom->new(gedcom_file => $ARGV[1], read_only => 1);
 my $nameparser = Lingua::EN::NameParse->new(extended_titles => 1, initials => 1);
+my $dfg = DateTime::Format::Genealogy->new();
 
 my @everyone1 = $ged1->individuals();
 
@@ -69,7 +71,7 @@ sub compare
 	} elsif($dob1 && $dob2) {
 		$dob1 =~ s/^abt\.\s/abt /i;
 		$dob2 =~ s/^abt\.\s/abt /i;
-		if(lc($dob1) ne lc($dob2)) {
+		if(datecmp($dob1, $dob2) != 0) {
 			return ($dob1, $dob2, 'date of birth differs');
 		}
 	}
@@ -84,7 +86,7 @@ sub compare
 	} elsif($dod1 && $dod2) {
 		$dod1 =~ s/^abt\.\s/abt /i;
 		$dod2 =~ s/^abt\.\s/abt /i;
-		if(lc($dod1) ne lc($dod2)) {
+		if(datecmp($dod1, $dod2) != 0) {
 			return ($dod1, $dod2, 'date of death differs');
 		}
 	}
@@ -263,158 +265,6 @@ sub Gedcom::Individual::as_string
 	return $rc;
 }
 
-sub Gedcom::Individual::as_stringO
-{
-	my $self = shift;
-	my %args = (ref($_[0]) eq 'HASH') ? %{$_[0]} : @_;
-
-	my $name;
-
-	if($args{'use_aka'}) {
-		my $n2 = $self->tag_record('NAME', 2);
-		if(defined($n2) && (ref($n2) eq 'Gedcom::Record') && defined($n2->type()) && ($n2->type() eq 'AlsoKnownAs')) {
-			$name = $n2->value();
-		} else {
-			return;
-		}
-	} else {
-		$name = $self->name();
-	}
-
-	$name =~ s/\///g;
-	$nameparser->parse($name);
-
-	my %name_components = $nameparser->components();
-	my $first_name = $name_components{'given_name_1'};
-	my $middle_name = $name_components{'middle_name'};
-	my $surname = $name_components{'surname_1'};
-	if($name_components{'surname_2'}) {
-		$surname .= ' ' . $name_components{'surname_2'};
-	}
-	if($name_components{'non_matching'}) {
-		if($name =~ /(\w{2,})\s(\w{2,})\s(\w+)\s(\w{2,})/) {
-			# Name parser doesn't parse names like this very well
-			$first_name = $1;
-			$middle_name = "$2 $3";
-			$surname = $4;
-		} else {
-			if($surname) {
-				$surname .= ' ';
-			}
-			my $rest = $name_components{'non_matching'};
-			if($rest =~ /(.+) $/) {
-				$rest = $1;
-			}
-			$surname .= $rest;
-		}
-	} elsif(!defined($surname)) {
-		$surname = $self->surname();
-	}
-
-	my $has_maiden_name;
-	if($args{'nee'}) {
-		my $sex = get_value({ person => $self, value => 'sex' });
-		if(defined($sex) && ($sex eq 'F')) {
-			if(my $husband = $self->husband()) {
-				$surname = $husband->surname();
-				$has_maiden_name = 1;
-			} elsif(my $spouse = $self->spouse()) {
-				red_warning({ person => $self, warning => 'married, but no husband relationship' });
-				$surname = $spouse->surname();
-				$has_maiden_name = 1;
-			}
-		}
-	}
-
-	my $rc;
-
-	if($args{'title'}) {
-		$rc .= $name_components{'title_1'};
-		if($rc) {
-			$rc .= ' ';
-		}
-	}
-
-	if($first_name) {
-		$rc .= $first_name;
-	} else {
-		$rc .= $self->given_names();
-	}
-
-	if($args{'middle_names'}) {
-		if($middle_name) {
-			$rc .= " $middle_name";
-		} elsif($name =~ /\s([A-Z])\s.+/) {
-			# Just an initial has been given
-			$rc .= " $1";
-		}
-	}
-
-	if($surname) {
-		if($rc) {
-			$rc .= ' ';
-		}
-		$rc .= normalize_name($surname);
-		if(my $suffix = $name_components{'suffix'}) {
-			$rc .= " $suffix";
-		}
-	}
-
-	if($has_maiden_name && $self->surname()) {
-		$rc .= ' (nee ' . normalize_name($self->surname()) . ')';
-	}
-
-	if(!defined($rc)) {
-		red_warning({ warning => "Can't determine name of this person" });
-		$args{'include_years'} = 1;
-		$rc = 'Unknown person ';
-	}
-
-	if($args{'include_years'}) {
-		my $dob = get_value({ person => $self, value => 'birth date' });
-
-		my $yob;	# Year of birth
-		if($dob && ($dob =~ /.*?(\d{3,4})/)) {
-			if($dob =~ /^(Abt|ca?)\.?\s*(.+)/i) {
-				$yob = "c$2";
-			} else {
-				$yob = $1;
-			}
-		} else {
-			$dob = get_value({ person => $self, value => 'baptism date' });
-			if($dob && ($dob =~ /.*?(\d{3,4})/)) {
-				$yob = "c$1";
-			}
-		}
-
-		my $dod = get_value({ person => $self, value => 'death date' });
-
-		my $yod;	# Year of death
-		if($dod && ($dod =~ /.*?(\d{3,4})/)) {
-			$yod = $1;
-		} else {
-			$dod = get_value({ person => $self, value => 'burial date' });
-			if($dod && ($dod =~ /.*?(\d{3,4})/)) {
-				$yod = "c$1";
-			}
-		}
-
-		$rc .= ' ' if($yob || $yod);
-
-		if($yob) {
-			$rc .= "$yob ";
-		}
-
-		$rc .= '-' if($yob || $yod);
-
-		if($yod) {
-			return "$rc $yod";
-		}
-	}
-
-	return $rc;
-}
-
 sub red_warning
 {
 	my %params = (ref($_[0]) eq 'HASH') ? %{$_[0]} : @_;
@@ -468,4 +318,72 @@ sub normalize_name
 	# return $rc;
 
 	return Lingua::EN::NameCase::nc(shift);
+}
+
+# Compare two dates. Approximate dates are compared.
+# TODO: handle when only months are known
+sub datecmp
+{
+	my ($left, $right) = @_;
+
+	if((!defined($left)) || !defined($right)) {
+		if(!defined($left)) {
+			print STDERR "BUG: left not defined\n";
+		}
+		if(!defined($right)) {
+			print STDERR "BUG: right not defined\n";
+		}
+		my $i = 0;
+		while((my @call_details = caller($i++))) {
+			print STDERR "\t", colored($call_details[2] . ' of ' . $call_details[1], 'red'), "\n";
+		}
+		return 0;
+	}
+	if(!ref($left)) {
+		if($left =~ /^(Abt|ca?)\s+(.+)/i) {
+			$left = $2;
+		}
+		if($left !~ /^\d{3,4}$/) {
+			my @l = $dfg->parse_datetime($left);
+			my $rc = $l[1] || $l[0];
+			if(!defined($rc)) {
+				print STDERR "Date parse failure: ($left):\n";
+				my $i = 0;
+				while((my @call_details = caller($i++))) {
+					print STDERR "\t", colored($call_details[2] . ' of ' . $call_details[1], 'red'), "\n";
+				}
+				return 0;
+			}
+			$left = $rc;
+		}
+	}
+	if(!ref($right)) {
+		if($right =~ /^(Abt|ca?)\s+(.+)/i) {
+			$right = $2;
+		}
+		if($right =~ /^\d{3,4}$/) {
+			if(ref($left)) {
+				return $left->year() <=> $right;
+			} else {
+				return $left <=> $right;
+			}
+		}
+		# if(!$dfg->parse_datetime($right)) {
+			# my $i = 0;
+			# while((my @call_details = caller($i++))) {
+				# print STDERR "\t", colored($call_details[2] . ' of ' . $call_details[1], 'red'), "\n";
+			# }
+			# die join('<=>', @_);
+		# }
+		my @r = $dfg->parse_datetime($right);
+		$right = $r[0];
+	}
+	if((!ref($left)) && ref($right)) {
+		return $left <=> $right->year();
+	}
+	if(ref($left) && (!ref($right))) {
+		return $left->year() <=> $right;
+	}
+
+	return $left <=> $right;
 }

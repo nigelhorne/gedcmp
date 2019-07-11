@@ -1,7 +1,7 @@
 # gedcmp
 
-Compare two gedcoms for missing and differeing data, producing a CSV which should be readable by
-any spreadsheet.
+Compare two gedcoms for missing and differeing data,
+producing a CSV which should be readable by any spreadsheet.
 
 I use this to compare my Gedcoms on FindMyPast and Ancestry.
 It could also be of use to compare Gedcoms with those of a family member.
@@ -13,9 +13,10 @@ It could also be of use to compare Gedcoms with those of a family member.
 
 ## LICENSE AND COPYRIGHT
 
-Copyright 2015-2017 Nigel Horne.
+Copyright 2015-2019 Nigel Horne.
 
-This program is released under the following licence: GPL for personal use on a single computer.
+This program is released under the following licence:
+GPL for personal use on a single computer.
 All other users (including Commercial, Charity, Educational, Government)
 must apply in writing for a licence for use from Nigel Horne at
 `<njh at nigelhorne.com>`.
