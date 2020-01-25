@@ -132,6 +132,22 @@ sub compare
 		return (scalar(@spouses1), scalar(@spouses2), 'number of spouses differs');
 	}
 
+	my $mother1 = $person1->mother();
+	my $mother2 = $person2->mother();
+	if($mother1 && !$mother2) {
+		return ($mother1->as_string(), undef, "mother is missing from $ARGV[1]");
+	} elsif($mother2 && !$mother1) {
+		return (undef, $mother2->as_string(), "mother is missing from $ARGV[0]");
+	}
+
+	my $father1 = $person1->father();
+	my $father2 = $person2->father();
+	if($father1 && !$father2) {
+		return ($father1->as_string(), undef, "father is missing from $ARGV[1]");
+	} elsif($father2 && !$father1) {
+		return (undef, $father2->as_string(), "father is missing from $ARGV[0]");
+	}
+
 	return;
 }
 
