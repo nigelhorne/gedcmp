@@ -1,7 +1,7 @@
 #!/usr/bin/env perl
 
 # Author Nigel Horne: njh@bandsman.co.uk
-# Copyright (C) 2016-2019, Nigel Horne
+# Copyright (C) 2016-2020, Nigel Horne
 
 # Usage is subject to licence terms.
 # The licence terms of this software are as follows:
@@ -10,20 +10,55 @@
 #	must apply in writing for a licence for use from Nigel Horne at the
 #	above e-mail.
 
-# Compare two gedcoms
+# Compare two gedcoms for differences
 
 use strict;
 use warnings;
 use autodie qw(:all);
 
-use DateTime::Format::Genealogy;
-use Gedcom;
-use Term::ANSIColor;
-use Lingua::EN::NameParse;
-use Lingua::EN::NameCase;
-use Tie::Static;
-
 no lib '.';
+
+my @modules;
+
+# Install Pre-requisites
+BEGIN {
+	@modules = (
+		'DateTime::Format::Genealogy', 'Gedcom', 'Term::ANSIColor',
+		'Lingua::EN::NameParse', 'Lingua::EN::NameCase', 'Tie::Static',
+	);
+
+	my @needfull;
+	foreach my $module(@modules) {
+		eval "use $module";
+		if($@) {
+			push @needfull, $module;
+		}
+	}
+	if(scalar(@needfull)) {
+		my $list = join(' ', @needfull);
+		print "Installing $list\n";
+		system("cpan -i $list");
+	}
+}
+
+foreach my $module(@modules) {
+	my $version;
+	if($module =~ /(.+)\s(.+)$/) {
+		$module = $1;
+		$version = $2;
+	}
+	if($module =~ /.+\/(.+)/) {
+		$module = $1;
+	}
+	eval "require $module";
+	if($@) {
+		die $@;
+	}
+	$module->import();
+	# if($version && ($module::VERSION < $version)) {
+		# die "$module: need $version got ", $module::VERSIOn;
+	# }
+}
 
 die "Usage: $0 filename1 filename2\n" unless($ARGV[0] && $ARGV[1]);
 
@@ -67,7 +102,7 @@ sub compare
 	if($dob1 && !$dob2) {
 		return ($dob1, undef, "date of birth is missing from $ARGV[1]");
 	} elsif($dob2 && !$dob1) {
-		return (undef, $dob2, "date of birth is missing from $ARGV[1]");
+		return (undef, $dob2, "date of birth is missing from $ARGV[0]");
 	} elsif($dob1 && $dob2) {
 		$dob1 =~ s/^abt\.\s/abt /i;
 		$dob2 =~ s/^abt\.\s/abt /i;
@@ -82,7 +117,7 @@ sub compare
 	if($dod1 && !$dod2) {
 		return ($dob1, undef, "date of death is missing from $ARGV[1]");
 	} elsif($dod2 && !$dod1) {
-		return (undef, $dob2, "date of death is missing from $ARGV[1]");
+		return (undef, $dob2, "date of death is missing from $ARGV[0]");
 	} elsif($dod1 && $dod2) {
 		$dod1 =~ s/^abt\.\s/abt /i;
 		$dod2 =~ s/^abt\.\s/abt /i;
