@@ -8,8 +8,8 @@ It could also be of use to compare Gedcoms with those of a family member.
 
 ## See Also
 
-[gedcom](https://github.com/nigelhorne/gedcom) - a general purpose utility for Gedcom files
-[ged2site](https://github.com/nigelhorne/ged2site) - create a website from a Gedcom file
+* [gedcom](https://github.com/nigelhorne/gedcom) - a general purpose utility for Gedcom files
+* [ged2site](https://github.com/nigelhorne/ged2site) - create a website from a Gedcom file
 
 ## LICENSE AND COPYRIGHT
 
