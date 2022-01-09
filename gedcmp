@@ -1,7 +1,7 @@
 #!/usr/bin/env perl
 
 # Author Nigel Horne: njh@bandsman.co.uk
-# Copyright (C) 2016-2020, Nigel Horne
+# Copyright (C) 2016-2022, Nigel Horne
 
 # Usage is subject to licence terms.
 # The licence terms of this software are as follows:
@@ -60,7 +60,7 @@ foreach my $module(@modules) {
 	# }
 }
 
-die "Usage: $0 filename1 filename2\n" unless($ARGV[0] && $ARGV[1]);
+die "Usage: $0 filename1 filename2" unless($ARGV[0] && $ARGV[1]);
 
 my $ged1 = Gedcom->new(gedcom_file => $ARGV[0], read_only => 1);
 my $ged2 = Gedcom->new(gedcom_file => $ARGV[1], read_only => 1);
@@ -71,10 +71,10 @@ my @everyone1 = $ged1->individuals();
 
 print "\"person\",\"$ARGV[0]\",\"$ARGV[1]\",\"note\"\n";
 
-foreach my $person1(@everyone1) {
+while(my $person1 = shift(@everyone1)) {
 	my @diffs = ();
 	my @people2 = $ged2->get_individual($person1->as_string({middle_names => 1}));
-	foreach my $person2(@people2) {
+	while(my $person2 = shift(@people2)) {
 		my @rc = compare($person1, $person2);
 		if(scalar(@rc)) {
 			@diffs = @rc;	# This one doesn't match
@@ -106,7 +106,7 @@ sub compare
 	} elsif($dob1 && $dob2) {
 		$dob1 =~ s/^abt\.\s/abt /i;
 		$dob2 =~ s/^abt\.\s/abt /i;
-		if(datecmp($dob1, $dob2) != 0) {
+		if(($dob1 ne $dob2) && (datecmp($dob1, $dob2) != 0)) {
 			return ($dob1, $dob2, 'date of birth differs');
 		}
 	}
@@ -115,13 +115,13 @@ sub compare
 	my $dod2 = get_value({ person => $person2, value => 'death date' });
 
 	if($dod1 && !$dod2) {
-		return ($dob1, undef, "date of death is missing from $ARGV[1]");
+		return ($dod1, undef, "date of death is missing from $ARGV[1]");
 	} elsif($dod2 && !$dod1) {
-		return (undef, $dob2, "date of death is missing from $ARGV[0]");
+		return (undef, $dod2, "date of death is missing from $ARGV[0]");
 	} elsif($dod1 && $dod2) {
 		$dod1 =~ s/^abt\.\s/abt /i;
 		$dod2 =~ s/^abt\.\s/abt /i;
-		if(datecmp($dod1, $dod2) != 0) {
+		if(($dod1 ne $dod2) && (datecmp($dod1, $dod2) != 0)) {
 			return ($dod1, $dod2, 'date of death differs');
 		}
 	}
