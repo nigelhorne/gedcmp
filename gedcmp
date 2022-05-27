@@ -121,6 +121,9 @@ sub compare
 	} elsif($dod1 && $dod2) {
 		$dod1 =~ s/^abt\.\s/abt /i;
 		$dod2 =~ s/^abt\.\s/abt /i;
+		# if($dod2 =~ /-/) {
+			# die $person2->as_string(), ": Can't parse date of death $dod2 in $ARGV[1]";
+		# }
 		if(($dod1 ne $dod2) && (datecmp($dod1, $dod2) != 0)) {
 			return ($dod1, $dod2, 'date of death differs');
 		}
@@ -437,7 +440,8 @@ sub datecmp($$)
 			# die join('<=>', @_);
 		# }
 		my @r = $dfg->parse_datetime($right);
-		die $right if(!defined($r[0]));
+		# die $right if(!defined($r[0]));
+		return if(!defined($r[0]));
 		$right = $r[0];
 	}
 	if((!ref($left)) && ref($right)) {
