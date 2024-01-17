@@ -1,7 +1,7 @@
 #!/usr/bin/env perl
 
 # Author Nigel Horne: njh@bandsman.co.uk
-# Copyright (C) 2016-2022, Nigel Horne
+# Copyright (C) 2016-2024, Nigel Horne
 
 # Usage is subject to licence terms.
 # The licence terms of this software are as follows:
@@ -37,7 +37,9 @@ BEGIN {
 	if(scalar(@needfull)) {
 		my $list = join(' ', @needfull);
 		print "Installing $list\n";
-		system("cpan -i $list");
+		# system("cpan -i $list");
+		$ENV{'PERL_MM_USE_DEFAULT'} = 1;
+		system('perl -MCPAN -e \'CPAN::Shell->install("' . join('", "', @needfull) . '")\'');
 	}
 }
 
