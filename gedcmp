@@ -382,56 +382,142 @@ sub datecmp($$)
 {
 	my ($left, $right) = @_;
 
-	if((!defined($left)) || !defined($right)) {
-		# Shouldn't happen with the prototype
-		print STDERR "\n";
-		if(!defined($left)) {
-			print STDERR "BUG: left not defined\n";
-		}
-		if(!defined($right)) {
-			print STDERR "BUG: right not defined\n";
-		}
-		my $i = 0;
-		while((my @call_details = caller($i++))) {
-			print STDERR "\t", colored($call_details[2] . ' of ' . $call_details[1], 'red'), "\n";
-		}
-		return 0;
-	}
-	if(!ref($left)) {
-		if($left =~ /^(Abt|ca?)\s+(.+)/i) {
-			$left = $2;
-		}
-		if($left !~ /^\d{3,4}$/) {
-			my @l = $dfg->parse_datetime($left);
-			my $rc = $l[1] || $l[0];
-			if(!defined($rc)) {
-				print STDERR "Date parse failure: ($left):\n";
-				my $i = 0;
-				while((my @call_details = caller($i++))) {
-					print STDERR "\t", colored($call_details[2] . ' of ' . $call_details[1], 'red'), "\n";
-				}
-				return 0;
+	return 0 if($left eq $right);
+
+	if((!ref($left)) && (!ref($right)) && ($left =~ /(\d{3,4})$/)) {
+		# Simple year test for fast comparison
+		my $yol = $1;
+		if($right =~ /(\d{3,4})$/) {
+			my $yor = $1;
+			if($yol != $yor) {
+				return $yol <=> $yor;
 			}
-			$left = $rc;
 		}
 	}
-	if(!ref($right)) {
-		if($right =~ /^bef/i) {
-			print STDERR "$right: Before not handled\n";
+
+	if(!ref($left)) {
+		if((!ref($right)) && ($left =~ /(^|[\s\/])\d{4}$/) && ($right =~ /(^|[\s\/,])(\d{4})$/)) {
+			my $ryear = $2;
+			$left =~ /(^|[\s\/])(\d{4})$/;
+			my $lyear = $2;
+			if($lyear != $ryear) {
+				# Easy comparison for different years
+				return $lyear <=> $ryear;
+			}
+		}
+		if($left =~ /^(bef|aft)/i) {
+			if($right =~ /^\d+$/) {
+				# For example, comparing bef 1 Jun 1965 <=> 1939
+				if($left =~ /\s(\d+)$/) {
+					# Easy comparison for different years
+					if($1 != $right) {
+						return $1 <=> $right;
+					}
+					# FIXME: same year
+				}
+			}
+			print STDERR "$left <=> $right: not handled yet\n";
 			my $i = 0;
 			while((my @call_details = caller($i++))) {
 				print STDERR "\t", colored($call_details[2] . ' of ' . $call_details[1], 'red'), "\n";
 			}
 			return 0;
 		}
-		if($right =~ /^(Abt|ca?)\s+(.+)/i) {
-			$right = $2;
+		if($left =~ /^(Abt|ca?)\.?\s+(.+)/i) {
+			$left = $2;
+		} elsif($left =~ /(.+?)\s?\?$/) {
+			# "1828 ?"
+			$left = $1;
+		} elsif(($left =~ /\//) && ($left =~ /^[a-z\/]+\s+(.+)/i)) {
+			# e.g. "Oct/Nov/Dec 1950"
+			$left = $1;
 		}
+
+		# e.g. "1802 or 1803"
+		if($left =~ /^(\d{3,4})\sor\s(\d{3,4})$/) {
+			my($start, $end) = ($1, $2);
+			if($start == $end) {
+				warn "the years are the same '$left'";
+			}
+			$left = $start
+		} elsif($left !~ /^\d{3,4}$/) {
+			if(($left !~ /[a-z]/i) || ($left =~ /[a-z]$/)) {
+				my $i = 0;
+				while((my @call_details = caller($i++))) {
+					print STDERR "\t", colored($call_details[2] . ' of ' . $call_details[1], 'red'), "\n";
+				}
+				die "Date parse failure: left = '$left' ($left <=> $right)";
+			}
+			my @l = $dfg->parse_datetime($left);
+			my $rc = $l[1] || $l[0];
+			if(!defined($rc)) {
+				my $i = 0;
+				while((my @call_details = caller($i++))) {
+					print STDERR "\t", colored($call_details[2] . ' of ' . $call_details[1], 'red'), "\n";
+				}
+				die "Date parse failure: left = '$left' ($left <=> $right)";
+			}
+			$left = $rc;
+		}
+	}
+	if(!ref($right)) {
+		if($right =~ /^bef/i) {
+			if($left =~ /^\d+$/) {
+				# For example, comparing 1939 <=> bef 1 Jun 1965
+				if($right =~ /\s(\d+)$/) {
+					return $left <=> $1;
+				}
+			}
+			print STDERR "$left <=> $right: Before not handled\n";
+			my $i = 0;
+			while((my @call_details = caller($i++))) {
+				print STDERR "\t", colored($call_details[2] . ' of ' . $call_details[1], 'red'), "\n";
+			}
+			return 0;
+		}
+		if($right =~ /^(Abt|ca?)\.?\s+(.+)/i) {
+			$right = $2;
+		} elsif(($right =~ /\//) && ($right =~ /^[a-z\/]+\s+(.+)/i)) {
+			# e.g. "Oct/Nov/Dec 1950"
+			$right = $1;
+		}
+
 		if($right =~ /^\d{3,4}$/) {
 			if(ref($left)) {
 				return $left->year() <=> $right;
+			}
+			return $left <=> $right;
+		}
+
+		if($right =~ /^(\d{3,4})\-(\d{3,4})$/) {
+			# Comparing with a date range
+			my ($from, $to) = ($1, $2);
+			if($from == $to) {
+				warn "from == to, $from";
+				$right = $from;
+			} elsif($from > $to) {
+				print STDERR "datecmp(): $from > $to in daterange '$right'\n";
+				my $i = 0;
+				while((my @call_details = caller($i++))) {
+					print STDERR "\t", colored($call_details[2] . ' of ' . $call_details[1], 'red'), "\n";
+				}
+				return 0;
 			} else {
-				return $left <=> $right;
+				if(ref($left)) {
+					$left = $left->year();
+				}
+				if($left < $from) {
+					return -1;
+				}
+				if($left > $to) {
+					return 1;
+				}
+				print STDERR "datecmp(): Can't compare $left with $right\n";
+				my $i = 0;
+				while((my @call_details = caller($i++))) {
+					print STDERR "\t", colored($call_details[2] . ' of ' . $call_details[1], 'red'), "\n";
+				}
+				return 0;
 			}
 		}
 		# if(!$dfg->parse_datetime($right)) {
@@ -442,7 +528,28 @@ sub datecmp($$)
 			# die join('<=>', @_);
 		# }
 		my @r = $dfg->parse_datetime($right);
-		die $right if(!defined($r[0]));
+		if(!defined($r[0])) {
+			if($right =~ /[\s\/](\d{4})$/) {
+				# e.g. cmp "1891 <=> Oct/Nov/Dec 1892"
+				# or 5/27/1872
+				my $year = $1;
+				if(ref($left)) {
+					if($left->year() != $year) {
+						return $left->year() <=> $year;
+					}
+				} else {
+					if($left != $year) {
+						return $left <=> $year;
+					}
+				}
+			}
+			# TODO: throw an error that we can catch
+			my $i = 0;
+			while((my @call_details = caller($i++))) {
+				print STDERR "\t", colored($call_details[2] . ' of ' . $call_details[1], 'red'), "\n";
+			}
+			die "Date parse failure: right = '$right' ($left <=> $right)";
+		}
 		$right = $r[0];
 	}
 	if((!ref($left)) && ref($right)) {

@@ -13,7 +13,7 @@ It could also be of use to compare Gedcoms with those of a family member.
 
 ## LICENSE AND COPYRIGHT
 
-Copyright 2015-2022 Nigel Horne.
+Copyright 2015-2024 Nigel Horne.
 
 This program is released under the following licence:
 GPL for personal use on a single computer.
