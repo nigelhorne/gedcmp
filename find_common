@@ -1,8 +1,10 @@
 #!/usr/bin/env perl
 use strict;
 use warnings;
-use Gedcom;
+
 use Digest::MD5 qw(md5_hex);
+use Readonly::Values::Months;	# e.g., $JAN == 1, $FEB == 2, etc.
+use Gedcom;
 
 # Hash of people by file
 my %people_by_file;
@@ -40,6 +42,8 @@ foreach my $ged_file (@ARGV) {
 
 	next unless defined $death;
 
+	$birth = normalize_date($birth);
+	$death = normalize_date($death);
 	my $key = generate_key($birth, $death);
 
 	push @{ $match_index{$key} }, [$ged_file, $indi];
@@ -65,8 +69,38 @@ foreach my $key (sort keys %match_index) {
 }
 
 sub generate_key {
-    my ($birth, $death) = @_;
-    $birth =~ s/\s+/ /g;
-    $death =~ s/\s+/ /g;
-    return md5_hex(lc($birth) . lc($death));
+	my ($birth, $death) = @_;
+	$birth =~ s/\s+/ /g;
+	$death =~ s/\s+/ /g;
+	return md5_hex(lc($birth) . lc($death));
+}
+
+sub normalize_date {
+    my $date = $_[0];
+    return '' unless defined $date;
+
+    $date =~ s/^\s+|\s+$//g;
+    $date = uc $date;
+
+    # Match GEDCOM-like date formats: 1 JAN 1900, JAN 1900, 1900
+    if ($date =~ /^(\d{1,2})\s+([A-Z]{3,})\s+(\d{4})$/) {
+        my ($day, $mon, $year) = ($1, $2, $3);
+        $mon = month_to_number($mon) // '00';
+        return sprintf("%04d-%02d-%02d", $year, $mon, $day);
+    }
+    elsif ($date =~ /^([A-Z]{3,})\s+(\d{4})$/) {
+        my ($mon, $year) = ($1, $2);
+        $mon = month_to_number($mon) // '00';
+        return sprintf("%04d-%02d", $year, $mon);
+    }
+    elsif ($date =~ /^(\d{4})$/) {
+        return $date;
+    }
+
+    # Unrecognized format, return as-is
+    return $date;
+}
+
+sub month_to_number {
+	return $months{lc($_[0])};
 }
