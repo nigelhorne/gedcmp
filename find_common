@@ -1,0 +1,72 @@
+#!/usr/bin/env perl
+use strict;
+use warnings;
+use Gedcom;
+use Digest::MD5 qw(md5_hex);
+
+# Hash of people by file
+my %people_by_file;
+
+# Index: key = md5(birth + death) -> [ [file, person], ... ]
+my %match_index;
+
+foreach my $ged_file (@ARGV) {
+    my $ged;
+    eval {
+    	$ged = Gedcom->new(gedcom_file => $ged_file, read_only => 1);
+    };
+    if($@) {
+	warn "Failed to parse $ged_file: $@";
+	next;
+    }
+
+    my @individuals = $ged->individuals;
+    foreach my $indi (@individuals) {
+	my $name;
+	eval {
+		$name = $indi->name();
+	};
+	next unless $name;
+	my $birth;
+	eval {
+		$birth = $indi->get_value('birth date');
+	};
+	# Only consider people with both birth and death dates
+	next unless defined($birth);
+	my $death;
+	eval {
+		$death = $indi->get_value('death date');
+	};
+
+	next unless defined $death;
+
+	my $key = generate_key($birth, $death);
+
+	push @{ $match_index{$key} }, [$ged_file, $indi];
+	push @{ $people_by_file{$ged_file} }, $indi;
+    }
+}
+
+# Output matches
+print "People with matching birth and death dates across files:\n";
+
+foreach my $key (sort keys %match_index) {
+    my @matches = @{ $match_index{$key} };
+    next unless @matches > 1;
+
+    print "\nMATCH: Birth/Death Key [$key]\n";
+    foreach my $match (@matches) {
+        my ($file, $person) = @$match;
+        my $name  = $person->name;
+        my $birth = $person->get_value("birth date");
+        my $death = $person->get_value("death date");
+        print " - $file: $name (b. $birth, d. $death)\n";
+    }
+}
+
+sub generate_key {
+    my ($birth, $death) = @_;
+    $birth =~ s/\s+/ /g;
+    $death =~ s/\s+/ /g;
+    return md5_hex(lc($birth) . lc($death));
+}
