@@ -2,9 +2,12 @@
 use strict;
 use warnings;
 
+# Find duplicate people across a number of Gedcoms
+
+# use DateTime::Format::Genealogy;
 use Digest::MD5 qw(md5_hex);
-use Readonly::Values::Months;	# e.g., $JAN == 1, $FEB == 2, etc.
 use Gedcom;
+use Readonly::Values::Months;	# e.g., $JAN == 1, $FEB == 2, etc.
 
 # Hash of people by file
 my %people_by_file;
@@ -13,93 +16,114 @@ my %people_by_file;
 my %match_index;
 
 foreach my $ged_file (@ARGV) {
-    my $ged;
-    eval {
-    	$ged = Gedcom->new(gedcom_file => $ged_file, read_only => 1);
-    };
-    if($@) {
-	warn "Failed to parse $ged_file: $@";
-	next;
-    }
-
-    my @individuals = $ged->individuals;
-    foreach my $indi (@individuals) {
-	my $name;
+	my $ged;
 	eval {
-		$name = $indi->name();
+		$ged = Gedcom->new(gedcom_file => $ged_file, read_only => 1);
 	};
-	next unless $name;
-	my $birth;
-	eval {
-		$birth = $indi->get_value('birth date');
-	};
-	# Only consider people with both birth and death dates
-	next unless defined($birth);
-	my $death;
-	eval {
-		$death = $indi->get_value('death date');
-	};
+	if($@) {
+		warn "Failed to parse $ged_file: $@";
+		next;
+	}
 
-	next unless defined $death;
+	my @individuals = $ged->individuals();
 
-	$birth = normalize_date($birth);
-	$death = normalize_date($death);
-	my $key = generate_key($birth, $death);
+	foreach my $indi (@individuals) {
+		my $name;
+		eval {
+			$name = $indi->name();
+		};
+		next unless $name;
+		my $birth;
+		eval {
+			$birth = $indi->get_value('birth date');
+		};
+		# Only consider people with both birth and death dates
+		next unless defined($birth);
+		my $death;
+		eval {
+			$death = $indi->get_value('death date');
+		};
 
-	push @{ $match_index{$key} }, [$ged_file, $indi];
-	push @{ $people_by_file{$ged_file} }, $indi;
-    }
+		next unless defined $death;
+
+		$birth = normalize_date($birth);
+		$death = normalize_date($death);
+		my $key = generate_key($name, $birth, $death);
+
+		push @{ $match_index{$key} }, [$ged_file, $indi];
+		push @{ $people_by_file{$ged_file} }, $indi;
+	}
 }
 
 # Output matches
 print "People with matching birth and death dates across files:\n";
 
 foreach my $key (sort keys %match_index) {
-    my @matches = @{ $match_index{$key} };
-    next unless @matches > 1;
+	my @matches = @{ $match_index{$key} };
+	next unless @matches > 1;
 
-    print "\nMATCH: Birth/Death Key [$key]\n";
-    foreach my $match (@matches) {
-        my ($file, $person) = @$match;
-        my $name  = $person->name;
-        my $birth = $person->get_value("birth date");
-        my $death = $person->get_value("death date");
-        print " - $file: $name (b. $birth, d. $death)\n";
-    }
+	print "\nMATCH: Birth/Death Key [$key]\n";
+	foreach my $match (@matches) {
+		my ($file, $person) = @{$match};
+		my $name = $person->name;
+		my $birth = $person->get_value('birth date');
+		my $death = $person->get_value('death date');
+		print " - $file: $name (b. $birth, d. $death)\n";
+	}
 }
 
 sub generate_key {
-	my ($birth, $death) = @_;
-	$birth =~ s/\s+/ /g;
-	$death =~ s/\s+/ /g;
-	return md5_hex(lc($birth) . lc($death));
+	my ($name, $birth, $death) = @_;
+
+	$name = normalize_name($name);
+	$birth = normalize_date($birth);
+	$death = normalize_date($death);
+
+	return md5_hex(lc($name) . lc($birth) . lc($death));
 }
 
 sub normalize_date {
-    my $date = $_[0];
-    return '' unless defined $date;
+	my $date = $_[0];
+	return '' unless defined $date;
 
-    $date =~ s/^\s+|\s+$//g;
-    $date = uc $date;
+	$date =~ s/^\s+|\s+$//g;
+	$date = uc $date;
 
-    # Match GEDCOM-like date formats: 1 JAN 1900, JAN 1900, 1900
-    if ($date =~ /^(\d{1,2})\s+([A-Z]{3,})\s+(\d{4})$/) {
-        my ($day, $mon, $year) = ($1, $2, $3);
-        $mon = month_to_number($mon) // '00';
-        return sprintf("%04d-%02d-%02d", $year, $mon, $day);
-    }
-    elsif ($date =~ /^([A-Z]{3,})\s+(\d{4})$/) {
-        my ($mon, $year) = ($1, $2);
-        $mon = month_to_number($mon) // '00';
-        return sprintf("%04d-%02d", $year, $mon);
-    }
-    elsif ($date =~ /^(\d{4})$/) {
-        return $date;
-    }
+	# Match GEDCOM-like date formats: 1 JAN 1900, JAN 1900, 1900
+	# if(my $dt = DateTime::Format::Genealogy::parse_datetime({ date => $date, quiet => 1 })) {
+		# return $dt->ymd();
+	# } elsif($date =~ /^(\d{1,2})\s+([A-Z]{3,})\s+(\d{4})$/) {
+	if($date =~ /^(\d{1,2})\s+([A-Z]{3,})\s+(\d{4})$/) {
+		my ($day, $mon, $year) = ($1, $2, $3);
+		$mon = month_to_number($mon) // '00';
+		return sprintf("%04d-%02d-%02d", $year, $mon, $day);
+	} elsif ($date =~ /^([A-Z]{3,})\s+(\d{4})$/) {
+		my ($mon, $year) = ($1, $2);
+		$mon = month_to_number($mon) // '00';
+		return sprintf("%04d-%02d", $year, $mon);
+	} elsif ($date =~ /^(\d{4})$/) {
+		return $date;
+	}
 
-    # Unrecognized format, return as-is
-    return $date;
+	# Unrecognized format, return as-is
+	return $date;
 }
+
+sub normalize_name {
+	my $name = $_[0];
+	return '' unless defined $name;
+
+	$name =~ s/\s+/ /g;
+	$name =~ s/\/([^\/]+)\//$1/;	# remove GEDCOM slashes around surnames
+	$name = lc $name;
+	$name =~ s/[^a-z ]//g;	# remove punctuation
+	$name =~ s/\b(jr|sr|ii|iii|iv)\b//g;	# remove suffixes
+	$name =~ s/\s+/ /g;
+	$name =~ s/^\s+|\s+$//g;
+
+	return $name;
+}
+
 
 sub month_to_number {
 	return $months{lc($_[0])};
